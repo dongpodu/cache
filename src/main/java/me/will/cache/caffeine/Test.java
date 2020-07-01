@@ -1,17 +1,18 @@
 package me.will.cache.caffeine;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
-import com.github.benmanes.caffeine.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.*;
+import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 
 public class Test {
 
-    Cache<String, Object> manualCache = Caffeine.newBuilder()
+    Cache<String, String> manualCache = Caffeine.newBuilder()
             .expireAfterWrite(10, TimeUnit.MINUTES)
             .maximumSize(10_000)
             .build();
@@ -19,55 +20,62 @@ public class Test {
     LoadingCache<String, String> loadingCache = Caffeine.newBuilder()
             .expireAfterWrite(10, TimeUnit.MINUTES)
             .maximumSize(10_000)
-            .build(k -> k);
+            .build(k -> {
+                System.out.println("loading " + k);
+                return k;
+            });
+
+    AsyncLoadingCache<String, String> asyncLoadingCache = Caffeine.newBuilder()
+            .expireAfterWrite(10, TimeUnit.MINUTES)
+            .maximumSize(10_000)
+            .buildAsync(new AsyncCacheLoader<>() {
+                @Override
+                public @NonNull CompletableFuture<String> asyncLoad(@NonNull String key, @NonNull Executor executor) {
+                    return CompletableFuture.completedFuture(key);
+                }
+            });
 
     /**
      * 如果key获取不到，则从回源函数中加载
      *
      * @param keys
      */
-    public void testGetAll(List<String> keys) {
-        manualCache.getAll(keys, (ks) -> {
-            try {
-                if (Thread.currentThread().getName().equals("thread 1")) {
-                    Thread.sleep(30000);
-                }
-                System.out.println(Thread.currentThread().getName());
-                System.out.println(manualCache.asMap());
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-            Map<String, Object> result = new HashMap<>();
+    Map<String, String> testGetAll(List<String> keys) {
+        return manualCache.getAll(keys, (ks) -> {
+            Map<String, String> result = new HashMap<>();
             ks.forEach(r -> result.put(r, r));
             return result;
         });
     }
 
-    public void testGet(String key) {
-        manualCache.get(key, (k) -> {
-            System.out.println(Thread.currentThread().getName());
-            System.out.println(manualCache.asMap());
-            return k;
-        });
+    /**
+     * 如果key获取不到，则从回源函数中加载
+     *
+     * @param key
+     */
+    String testGet(String key) {
+        return manualCache.get(key, (k) -> k);
     }
 
-    void loadingCache(String key) {
+    String loadingCache(String key) {
+        return loadingCache.get(key);
+    }
 
+    CompletableFuture<String> asyncLoadingCache(String key) {
+        return asyncLoadingCache.get(key);
     }
 
     public static void main(String[] args) {
         Test test = new Test();
+//        test.testGetAll(List.of("1"));
+//        test.testGetAll(List.of("2"));
+//        test.testGetAll(List.of("1"));
 
-        Thread thread = new Thread(() -> test.testGetAll(List.of("1")));
-        thread.setName("thread 1");
-        thread.start();
+//        test.loadingCache("1");
+//        test.loadingCache("1");
+//        test.loadingCache("2");
 
-//        CompletableFuture.runAsync(() ->{
-//            test.testGetAll(List.of(String.valueOf(3), String.valueOf(4)));
-//        });
-
-        Thread thread2 = new Thread(() -> test.testGet("1"));
-        thread2.setName("thread 2");
-        thread2.start();
+        test.asyncLoadingCache("1");
+        test.asyncLoadingCache("2");
     }
 }
